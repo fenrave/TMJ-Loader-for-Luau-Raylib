@@ -1,4 +1,4 @@
-# Tiled-TMJ-Loader-for-Luau-Zune
+# TMJ-Loader-for-Luau-Raylib
 
 
 This is a module for loading TMJ (JSON [Tiled](/https://www.mapeditor.org/) format).
