@@ -34,8 +34,7 @@ moving down a tile height at the end of the current image slice.
 
 Starts from 0.
 
-TMX/TMJ have a "tilecount" thats always offset by +1. (39->40, for example)
-So subtract 1.
+TMX/TMJ have a "tilecount" from an embedded tilset that may be offset by 1 (so 39 -> 40), but sometimes they don't
 
 TMX/TMJ files use numbered dictionaries in {} scopes, starting from 1.
 Although most JSON formatting extensions will read them as "0."
@@ -43,14 +42,11 @@ Almost every instance of an array/table/dictionary will be defaulted to 1 in Lua
 
 +]]--
 
-function MapLoader:LoadMap(Map: string, Atlas: string): {}
+function MapLoader:LoadMap(Map: string, Atlas: string): (Map, raylib.Texture2D)
     
     local Raw: string = fs.readFile(Map)
-    
+    print(Raw)
     local MapData = serde.decode(Raw)
-
-
-    local tilemap = MapData["layers"][1]["data"]
 
     local Mapped: Map = {
         TileInfo = {},
@@ -60,16 +56,20 @@ function MapLoader:LoadMap(Map: string, Atlas: string): {}
     }
 
     local width: number = MapData["width"]
-    local height: number = MapData["height"]
 
     local tilewidth: number = MapData["tilewidth"]
     local tileheight: number = MapData["tileheight"]
     local tilesets: {[string]: any} = MapData["tilesets"]
     local tilecount: number = tilesets[1]["tilecount"]
+    local tilemargin: number = tilesets[1]["margin"]
+    local tilespacing: number = tilesets[1]["spacing"]
 
     if not tilecount then
-        tilecount = 2
-    end; tilecount -= 1
+        error("Map has no embedded TSX")
+        return
+    else
+        tilecount -= 1
+    end
 
     local atlascolumns: number = tilesets[1]["columns"]
 
@@ -77,14 +77,9 @@ function MapLoader:LoadMap(Map: string, Atlas: string): {}
     local cX: number = 0
     local cY: number = 0
 
-    local AtlasImg = lib.LoadImage(Atlas)
+    local AtlasImg: raylib.Image = lib.LoadImage(Atlas)
     
-
-    local Texture: raylib.Texture2D = lib.LoadTextureFromImage(AtlasImg) do
-
-        lib.SetTextureFilter(Texture, 0)
-    
-
+    local Texture: raylib.Texture2D = lib.LoadTextureFromImage(AtlasImg) do    
         Mapped.Textures[0] = Texture
     
         buffer.writei32(Texture, 16, 10)
@@ -93,9 +88,10 @@ function MapLoader:LoadMap(Map: string, Atlas: string): {}
     end
 
     local CurrentLayer: number
+    local Rect: raylib.Rectangle 
 
     --Destinations
-    for i, layer in MapData["layers"] do
+    for i: number, layer in MapData["layers"] do
         if not layer["data"] then
             continue 
         end
@@ -106,28 +102,20 @@ function MapLoader:LoadMap(Map: string, Atlas: string): {}
             if num == width then
                 num = 0; cX = 0; cY += tileheight
             end; num += 1
-            local Rect: raylib.Rectangle 
-            if Tile ~= 0 then
-                Rect= struct.Rectangle:new{
-                    x = cX,
-                    y = cY,
-                    width = tilewidth,
-                    height = tileheight
-                }
-            end
 
+            Rect = struct.Rectangle:new{
+                x = cX,
+                y = cY,
+                width = tilewidth,
+                height = tileheight
+            }
 
             if not Mapped.Tiles[CurrentLayer] then
                 Mapped.Tiles[CurrentLayer] = {}
-                
             end
 
             if not Mapped.Tiles[CurrentLayer][Tile] then
                 Mapped.Tiles[CurrentLayer][Tile] = {}
-            end
-
-            if not Mapped.TileIDs[Tile] then
-                Mapped.TileIDs[Tile] = nil
             end
 
             table.insert(Mapped.Tiles[CurrentLayer][Tile], Rect)
@@ -135,34 +123,33 @@ function MapLoader:LoadMap(Map: string, Atlas: string): {}
             cX += tilewidth
         end
 
-        cX = 0
-        cY = 0
-        num = 0
+        cX = 0; cY = 0; num = 0
     end
-    print(Mapped.Tiles)
 
-    cX = 1; cY = 1; num = 0
+    cX = tilemargin; cY = tilemargin; num = 0
 
     --Source Tiles
+
+    local SourceRect: raylib.Rectangle
+
     for i: number = 1, tilecount, 1 do
         if num == atlascolumns then
-            num = 0; cX = 1; cY += tileheight + 1
+            num = 0; cX = 1; cY += tileheight + tilemargin
         end; num += 1
 
-        local SourceRect = struct.Rectangle:new{
-            x = math.floor(cX + 1),
-            y = math.floor(cY + 1),
-            width = tilewidth - 1,
-            height = tileheight - 1
+        SourceRect = struct.Rectangle:new{
+            x = math.floor(cX + tilemargin),
+            y = math.floor(cY + tilemargin),
+            width = tilewidth - tilespacing,
+            height = tileheight - tilespacing
         }
 
         Mapped.TileIDs[i] = SourceRect
 
         
-        cX += tilewidth + 1
+        cX += tilewidth + tilemargin
 
     end
-
 
     Mapped.TileInfo = {
         startposition = vector.zero,
